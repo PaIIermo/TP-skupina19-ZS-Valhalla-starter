@@ -1,0 +1,115 @@
+Simply put, map-matching is a process of associating geographical coordinates to a digital map
+in order to create a reconstructed trajectory. 
+The aim of map matching is to take a series of GPS points and match each point to the closest 
+road segment on a digital road network. This reconstructed route can then be used to determine 
+the actual path taken by the vehicle, which can be used for a wide range of applications such 
+as traffic analysis, routing, etc.
+
+Map matching algorithms typically involve a probabilistic approach that incorporates several 
+sources of information. The algorithms consider a set of possible paths that could correspond 
+to the vehicle’s actual path and evaluate the likelihood of each path using various criteria. 
+The path with the highest likelihood is then selected as the reconstructed route.
+
+Valhalla is an open-source routing engine and accompanying libraries for use with OpenStreetMap data.
+Valhalla also includes tools like time+distance matrix computation, isochrones, elevation sampling, 
+map matching and tour optimization.
+
+Format of map data: OSM PBF (OpenStreetMap Protocol Buffer Format) files are a compact, efficient format for 
+storing geodata used by the OpenStreetMap (OSM) project. These files contain map data such as roads, 
+trails, cafes, railway stations, and much more, contributed by millions of users around the world. 
+The PBF format uses Google's Protocol Buffers as a method of serializing structured data, offering 
+significant advantages in terms of file size and speed over the older XML format traditionally used 
+by OpenStreetMap.
+
+Výhody:
+Parallelization. You can use different maps installation on different servers and proxy requests 
+to them
+Customization. You can manage your own configs, request information with many optional 
+parameters that can lead you to better solutions.
+Performance. Valhalla is written in C++.
+Localization...
+Openness. The contribution is allowed and welcome. Open-source under the MIT license.
+
+Meili is one of the main modules inside Valhalla. Its function is to perform map matching 
+(snap to road functionality), which is exactly what we needed to solve my problem.
+To briefly explain how it works, Meili firstly finds nearest candidates of road segments
+within the given radius of a given position and then detects the highest probability map match 
+(Viterbi path) using Viterbi algorithm in the context of hidden Markov models (HMM).
+
+1. As usual, the docker solution is the preferred one which avoids the installation of libraries 
+on a local machine thereby providing an OS-independent solution.
+Vrelo odporúčaný bol image od GIP•OPS
+- https://github.com/gis-ops/docker-valhalla
+- docker pull ghcr.io/gis-ops/docker-valhalla/valhalla:latest
+
+Use of PowerShell is recommended
+
+Give the image a new tag for simpler use, like so:
+docker tag ghcr.io/gis-ops/docker-valhalla/valhalla:latest valhalla_gis-ops
+, which will be used from now on.
+
+Takes minute or two
+
+# Predownload tile files from geofabrik.de, create custom_files on your host before starting 
+the container with all necessary files you want to be respected.
+e.g. the OSM PBF files.
+
+mkdir custom_files
+
+Then, we can turn on the server for Valhalla. We define a local volume to mount, where we will 
+provide the OSM extracts. This folder is linked to the docker server (-v option). 
+Documentation contains all options that can be passed in via the -e flag (tile_urls separated 
+by comma?).
+
+2a
+Stiahnutie dopredu
+wget -O custom_files/slovakia-latest.osm.pbf http://download.geofabrik.de/europe/slovakia-latest.osm.pbf
+docker run -dt --name valhalla -p 8002:8002 -v $PWD/custom_files:/custom_files valhalla_gis-ops
+
+2b
+Stiahnutie spolu so spustením containera
+docker run -dt --name valhalla -p 8002:8002 -v $PWD/custom_files:/custom_files 
+-e tile_urls=http://download.geofabrik.de/europe/slovakia-latest.osm.pbf valhalla_gis-ops
+
+Vlastnosti:
+Easily switch graphs by mapping different volumes to containers.
+Stores all relevant data (tiles, config, admin & timezone DBs, elevation) in the mapped volume.
+Load and build from multiple URLs pointing to valid pbf files.
+Load local data through volume mapping.
+Supports auto rebuild on OSM file changes through hash mapping.
+
+In the above, we’ve used the -d option for the silent operation. So, during the trial phase, 
+we can see the logs with standard docker commands. First, find the running container id and 
+then follow its log.
+docker container logs -f valhalla
+(-f flag - follow)
+
+In the logs, we see the process of tite building (and possibly the download first, if 
+requirements were not found in the custom_files folder)
+Keď bude posledná časť vyzerať ako obr1, ste ok.
+Took around 20 minutes
+Thereby, you will also see a valhalla_tiles.tar file which has the optimized graph.
+
+If you change the PBF files by either adding new ones or deleting any, Valhalla will 
+build new tiles on the next restart unless told not to.
+If you need to customize Valhalla's configuration, just edit custom_files/valhalla.json 
+and restart the container. It won't rebuild the tiles in this case, unless you tell 
+it to do so via environment variables.
+
+After this, we can check docker ps, or visit http://localhost:8002/ to see if the server 
+is running(the latter should give us "error_code":106 - the server is up but has not received
+any specific API address)
+
+Logs will show this message if you visit the localhost:
+2024/02/24 13:33:56.915618 [INFO] Got Loki Request 0
+2024/02/24 13:33:56.919003 [WARN] 400::Try any of: '/locate' '/route' '/height' '/sources_to_targets' '/optimized_route' '/isochrone' '/trace_route' '/trace_attributes' '/transit_available' '/expansion' '/centroid' '/status'  request_id=0
+
+Now, we can run the python script meili_request.py...
+expected logs look like this: 
+2 2024/02/24 13:50:31.851533 POST /trace_route HTTP/1.1
+2024/02/24 13:50:31.852472 [INFO] Got Loki Request 2
+2024/02/24 13:50:32.159646 [INFO] Got Thor Request 2
+2024/02/24 13:50:32.327910 [INFO] Got Odin Request 2
+2 2024/02/24 13:50:32.461657 200 13573
+
+V konzole by ste mali mať output ako an obr2

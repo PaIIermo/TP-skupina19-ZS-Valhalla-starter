@@ -1,0 +1,8 @@
+simplified version: 
+
+- docker compose up
+
+budete vidieť logy, ako vám to natiahne ten OSM PBF file a buduje graf.
+Bude to trvať nejakých 15 minút.
+keď budete vidieť to čo je na obr.1, server je up.
+Môžete spustiť meili_request.py a malo by vám v konzole vyhodiť, čo je na obr. 2
